@@ -1,106 +1,45 @@
-export interface User {
-  id: string;
-  role: 'admin' | 'operator' | 'viewer';
-  permissions: string[];
+export type Role = 'admin' | 'operator' | 'viewer';
+
+export interface Permission {
+  resource: string;
+  action: 'create' | 'read' | 'update' | 'delete' | 'bulk';
 }
 
-export const ROLES = {
-  admin: {
-    permissions: [
-      'resources:read',
-      'resources:write',
-      'resources:delete',
-      'users:read',
-      'users:write',
-      'users:delete',
-      'projects:read',
-      'projects:write',
-      'projects:delete',
-      'data:read',
-      'data:write',
-      'data:delete',
-      'audit:read',
-      'sustainability:read',
-      'sustainability:write',
-      'sustainability:delete',
-      'privacy:read',
-      'privacy:write',
-      'privacy:delete',
-      'analysis:read',
-      'analysis:write',
-      'analysis:delete',
-      'notifications:read',
-      'notifications:write',
-      'notifications:delete',
-      'virtual:read',
-      'virtual:write',
-      'virtual:delete',
-      'bulk:import'
-    ]
-  },
-  operator: {
-    permissions: [
-      'resources:read',
-      'resources:write',
-      'users:read',
-      'projects:read',
-      'projects:write',
-      'data:read',
-      'data:write',
-      'sustainability:read',
-      'sustainability:write',
-      'privacy:read',
-      'privacy:write',
-      'analysis:read',
-      'analysis:write',
-      'notifications:read',
-      'notifications:write',
-      'virtual:read',
-      'virtual:write',
-      'bulk:import'
-    ]
-  },
-  viewer: {
-    permissions: [
-      'resources:read',
-      'users:read',
-      'projects:read',
-      'data:read',
-      'sustainability:read',
-      'privacy:read',
-      'analysis:read',
-      'notifications:read',
-      'virtual:read'
-    ]
-  }
-} as const;
+const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
+  admin: [
+    { resource: '*', action: 'create' },
+    { resource: '*', action: 'read' },
+    { resource: '*', action: 'update' },
+    { resource: '*', action: 'delete' },
+    { resource: '*', action: 'bulk' }
+  ],
+  operator: [
+    { resource: '*', action: 'create' },
+    { resource: '*', action: 'read' },
+    { resource: '*', action: 'update' },
+    { resource: '*', action: 'bulk' }
+  ],
+  viewer: [
+    { resource: '*', action: 'read' }
+  ]
+};
 
-export function hasPermission(user: User, permission: string): boolean {
-  return user.permissions.includes(permission);
+export function hasPermission(role: Role, resource: string, action: Permission['action']): boolean {
+  const permissions = ROLE_PERMISSIONS[role] || [];
+  return permissions.some(p => 
+    (p.resource === '*' || p.resource === resource) && p.action === action
+  );
 }
 
-export function checkPermission(user: User, permission: string): void {
-  if (!hasPermission(user, permission)) {
-    throw new Error(`Insufficient permissions. Required: ${permission}`);
-  }
-}
-
-export function getUserFromEvent(event: any): User {
-  const claims = event.requestContext?.authorizer?.claims;
-  if (!claims) {
-    throw new Error('No authorization claims found');
-  }
+export function extractUserRole(event: any): Role {
+  const authHeader = event.headers?.Authorization || event.headers?.authorization;
+  if (!authHeader) return 'viewer';
   
-  const role = claims['custom:role'] || 'viewer';
-  const userId = claims.sub;
-  
-  if (!['admin', 'operator', 'viewer'].includes(role)) {
-    throw new Error('Invalid role');
+  try {
+    const token = authHeader.replace('Bearer ', '');
+    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+    return payload.role || 'viewer';
+  } catch {
+    return 'viewer';
   }
-  
-  return {
-    id: userId,
-    role: role as 'admin' | 'operator' | 'viewer',
-    permissions: ROLES[role as keyof typeof ROLES].permissions
-  };
 }
